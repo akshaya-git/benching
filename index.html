@@ -344,6 +344,7 @@ async function loadFrameworks() {
   mfw.innerHTML = Object.entries(all).map(([fw, f]) =>
     `<option value="${fw}">${esc(f.name)}</option>`).join('');
   if (mfwPrior && all[mfwPrior]) mfw.value = mfwPrior;
+  mfw.onchange = () => loadModelCandidates(mfw.value);
   await loadModelCandidates(mfw.value);
 }
 
