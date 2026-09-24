@@ -885,10 +885,40 @@ def start_proxy():
 # ----------------------------------------------------------------------------
 # Framework lifecycle
 # ----------------------------------------------------------------------------
+def _adopt_served_model_id(fw):
+    """Align cfg['model'] with the id the server actually serves. Frameworks
+    like OMLX serve cache-style ids (org--name) while the config/picker use
+    repo-style (org/name); match by normalized key so requests resolve. Falls
+    back to adopting the single served id, else warns."""
+    cfg = FRAMEWORKS[fw]
+    try:
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{cfg['port']}/v1/models", timeout=5) as r:
+            ids = [m.get("id") for m in json.loads(r.read()).get("data", [])]
+    except Exception:
+        return
+    if not ids or cfg["model"] in ids:
+        return
+    match = next((i for i in ids
+                  if discovery.normalize_key(i) == discovery.normalize_key(cfg["model"])),
+                 None)
+    if match:
+        log(f"{cfg['name']} serves “{cfg['model']}” as “{match}” — adopting",
+            fw=fw, level="ok")
+        cfg["model"] = match
+    elif len(ids) == 1:
+        log(f"{cfg['name']} serves model id “{ids[0]}” — adopting", fw=fw, level="ok")
+        cfg["model"] = ids[0]
+    else:
+        log(f"⚠ configured model “{cfg['model']}” not in {cfg['name']}'s list {ids} "
+            f"— requests may fail", fw=fw, level="err")
+
+
 def start_framework(fw):
     cfg = FRAMEWORKS[fw]
     if framework_healthy(fw):
         log(f"{cfg['name']} already running on port {cfg['port']} — reusing", fw=fw)
+        _adopt_served_model_id(fw)
         adopt_served_meta(fw)
         set_fw_status(fw, "up")
         return True
@@ -917,24 +947,10 @@ def start_framework(fw):
             stop_framework(fw)
             return False
         if framework_healthy(fw):
-            # Adopt the model id the server actually reports (e.g. MTPLX serves
-            # the repo under a normalized id); keep explicit picks that match.
-            # mlx-serve: also adopt the SERVED context length so ctx-fill %
-            # reflects the real window (GUI instances may differ from config).
-            try:
-                with urllib.request.urlopen(
-                        f"http://127.0.0.1:{cfg['port']}/v1/models", timeout=5) as r:
-                    ids = [m.get("id") for m in json.loads(r.read()).get("data", [])]
-                if ids and cfg["model"] not in ids:
-                    if len(ids) == 1:
-                        log(f"{cfg['name']} serves model id “{ids[0]}” — adopting",
-                            fw=fw, level="ok")
-                        cfg["model"] = ids[0]
-                    else:
-                        log(f"⚠ configured model “{cfg['model']}” not in {cfg['name']}'s "
-                            f"list {ids} — requests may fail", fw=fw, level="err")
-            except Exception:
-                pass
+            # Adopt the model id the server actually reports (e.g. OMLX serves
+            # cache-style org--name, MTPLX a normalized id) and, for mlx-serve,
+            # the served context length so ctx-fill % reflects the real window.
+            _adopt_served_model_id(fw)
             adopt_served_meta(fw)
             set_fw_status(fw, "up")
             log(f"{cfg['name']} healthy on port {cfg['port']} ({cfg['model']})", fw=fw, level="ok")
@@ -1536,16 +1552,19 @@ def run_harness(fw, harness, task_name, prompt, settings):
                     el = round(time.time() - CELL_TAIL["started"], 0)
                 tail_add(f"⏳ {el}s elapsed · streaming generation in flight")
         _th.Thread(target=_raw_hb, daemon=True).start()
+        _raw_ok = False
         try:
             if harness == "rawplus":
                 text, ntok, gen, truncated, metrics, _rnds = \
                     rawplus_generate(fw, prompt, s)
             else:
                 text, ntok, gen, truncated, metrics = call_chat(fw, prompt, s)
+            _raw_ok = True
         finally:
             _raw_hb_stop.set()
-            tail_add(f"[{label}] stream complete · {ntok} tokens · "
-                     f"truncated={truncated}")
+            if _raw_ok:
+                tail_add(f"[{label}] stream complete · {ntok} tokens · "
+                         f"truncated={truncated}")
             with LOCK:
                 CELL_TAIL["active"] = False
     else:
