@@ -1,0 +1,60 @@
+{
+  "host": "127.0.0.1",
+  "port": 7090,
+  "route_via_proxy": false,
+  "pi_thinking": "",
+  "hart_path": "~/Documents/hart/hart.py",
+  "frameworks": {
+    "omlx": {
+      "name": "OMLX",
+      "port": 7001,
+      "model": "mlx-community--Qwen3.8-27B-8bit",
+      "model_gb": 28,
+      "ctx_tokens": 261000,
+      "start_cmd": ["omlx", "serve", "--port", "7001"],
+      "notes": "Model, context, max-tokens and reasoning are applied PER MODEL from ~/.omlx/model_settings.json at request time. MTP speculative decoding is ON via the embedded mlx-vlm engine."
+    },
+    "mtplx": {
+      "name": "MTPLX",
+      "port": 7002,
+      "model": "mtplx-qwen38-27b-optimized-quality",
+      "repo": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+      "model_gb": 28,
+      "ctx_tokens": 261000,
+      "start_cmd": ["mtplx", "serve",
+                    "--model", "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+                    "--context-window", "261000",
+                    "--max-tokens", "32768",
+                    "--reasoning-effort", "low",
+                    "--port", "7002"],
+      "notes": "All parameters are CLI flags applied at server start. The served model id is normalized and auto-adopted."
+    },
+    "mlxlm": {
+      "name": "MLX-VLM",
+      "port": 7003,
+      "model": "mlx-community/Qwen3.8-27B-8bit",
+      "model_gb": 28,
+      "ctx_tokens": 261000,
+      "start_cmd": ["python3",
+                    "-m", "mlx_vlm.server",
+                    "--model", "mlx-community/Qwen3.8-27B-8bit",
+                    "--draft-model", "mlx-community/Qwen3.8-27B-MTP-8bit",
+                    "--draft-kind", "mtp",
+                    "--max-tokens", "32768",
+                    "--port", "7003"],
+      "notes": "MTP speculative decoding via the Qwen3.8-MTP-8bit draft. Uses python3 from PATH — point it at the interpreter that has mlx_vlm installed if yours differs."
+    },
+    "mlxserve": {
+      "name": "MLX-Serve",
+      "port": 7004,
+      "model": "mlx-community/Qwen3.8-27B-8bit",
+      "model_gb": 28,
+      "ctx_tokens": 261000,
+      "start_cmd": ["mlx-serve", "--model", "mlx-community/Qwen3.8-27B-8bit",
+                    "--serve", "--host", "127.0.0.1", "--metrics",
+                    "--port", "7004", "--ctx-size", "261000",
+                    "--max-tokens", "32768", "--reasoning-budget", "1024"],
+      "notes": "vLLM-compatible server with the richest metrics surface (Prometheus /metrics). PLD speculative decoding is on by default."
+    }
+  }
+}
