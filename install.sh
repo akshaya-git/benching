@@ -62,6 +62,15 @@ check_cli opencode  "curl -fsSL https://opencode.ai/install | bash"
 check_cli goose     "brew install goose  (or the Goose repo)"
 have node && ok "node — $(command -v node)" || warn "node not found (needed by pi/opencode)"
 
+# --- Bundled hart harness (ships with benching — no install needed) ---
+echo
+echo "  Bundled harness:"
+if [ -f hart/hart.py ]; then
+  ok "hart — bundled at hart/hart.py (no install needed)"
+else
+  fail "hart/hart.py missing — the bundled harness should ship with this repo"
+fi
+
 # --- Seed config.json on first run ---
 echo
 if [ -f config.json ]; then

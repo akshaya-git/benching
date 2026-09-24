@@ -52,6 +52,7 @@ CONFIG_EXAMPLE = os.path.join(ROOT, "config.example.json")
 DEFAULT_FRAMEWORKS = {
     "omlx": {
         "name": "OMLX",
+        "model_source": "hf",
         "notes": "Model, context (261000), max-tokens (32768) and reasoning=low are applied PER MODEL from ~/.omlx/model_settings.json (entry: mlx-community--Qwen3.8-27B-8bit) at request time — the server starts bare, discovers models from the HF cache, and each request's model id selects its settings entry. Same base weights as MLX-VLM/MLX-Serve. MTP speculative decoding is ON via the embedded mlx-vlm engine (vlm_mtp_enabled=true, vlm_mtp_draft_model=mlx-community--Qwen3.8-27B-MTP-8bit) — the same draft arrangement MLX-VLM uses, user-confirmed working; the plain mtp_enabled/draft_model keys were inert in A/B (18.2 vs 18.1 TGS). The Jundot oQ8e build was retired after QA 25 on LONG tasks — see run 20260923-110534.",
         "port": 7001,
         "model": "mlx-community--Qwen3.8-27B-8bit",
@@ -60,14 +61,18 @@ DEFAULT_FRAMEWORKS = {
     },
     "mtplx": {
         "name": "MTPLX",
-        "notes": "All parameters are CLI flags applied at server start (this command). --reasoning-effort low applies to every request; the served model id is normalized to mtplx-qwen38-27b-optimized-quality and auto-adopted.",
+        # model_source "mtplx": models live in ~/.mtplx/models (a different
+        # format than HF/MLX), so the model picker shows only those for MTPLX.
+        "model_source": "mtplx",
+        "notes": "All parameters are CLI flags applied at server start (this command). --reasoning-effort low applies to every request; the served model id is normalized (e.g. mtplx-qwen38-27b-optimized-quality) and auto-adopted. Models are loaded from ~/.mtplx/models by repo id ({repo}); pick one in the Model panel.",
         "port": 7002,
         "model": "mtplx-qwen38-27b-optimized-quality",
-        # repo: the HF repo behind the normalized served id (cache mapping).
+        # repo: the HF repo behind the normalized served id; also the id used
+        # for the CLI --model flag and the ~/.mtplx/models directory.
         "repo": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
         "model_gb": 28, "ctx_tokens": 261000,
         "start_cmd": ["mtplx", "serve",
-                      "--model", "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+                      "--model", "{repo}",
                       "--context-window", "261000",
                       "--max-tokens", "32768",
                       "--reasoning-effort", "low",
@@ -80,6 +85,7 @@ DEFAULT_FRAMEWORKS = {
     # server-side cap (its default of 8192 would truncate thinking models).
     "mlxlm": {
         "name": "MLX-VLM",
+        "model_source": "hf",
         "notes": "All parameters are CLI flags applied at server start (this command): MTP speculative decoding via the Qwen3.8-MTP-8bit draft, max-tokens 32768. Context follows the model config (no flag on mlx_vlm; serves 262144). Per-request metrics come from its JSON /metrics. Uses python3 from PATH — point it at the interpreter that has mlx_vlm installed if yours differs.",
         "port": 7003,
         "model": "mlx-community/Qwen3.8-27B-8bit",
@@ -103,6 +109,7 @@ DEFAULT_FRAMEWORKS = {
     # fallback with PLD (on by default).
     "mlxserve": {
         "name": "MLX-Serve",
+        "model_source": "hf",
         "notes": "--max-tokens/--reasoning-budget are request defaults set at start; --ctx-size is OVERRIDDEN by ~/.mlx-serve/model-settings.json (ctx_size, set to 261000) — the file wins. --metrics enables the Prometheus surface (on by default in the GUI, not the CLI). PLD speculative decoding is on by default.",
         "port": 7004,
         "model": "mlx-community/Qwen3.8-27B-8bit",
@@ -122,7 +129,7 @@ DEFAULT_CONFIG = {
     "port": 7090,
     "route_via_proxy": False,
     "pi_thinking": "",
-    "hart_path": "~/Documents/hart/hart.py",
+    "hart_path": os.path.join(ROOT, "hart", "hart.py"),
     "frameworks": DEFAULT_FRAMEWORKS,
 }
 
@@ -186,15 +193,21 @@ FRAMEWORKS = CONFIG["frameworks"]
 
 
 def resolve_start_cmd(fw_cfg):
-    """Expand {model} / {model_path} placeholders in a framework's start_cmd.
-    {model_path} resolves to the local HF-cache snapshot path when the model
-    (or its repo) is cached — some CLIs need a real path — else the model id."""
-    model_path = discovery.snapshot_dir(
-        fw_cfg.get("repo") or fw_cfg.get("model", ""))
+    """Expand {model} / {repo} / {model_path} placeholders in a framework's
+    start_cmd.
+      {model}      → the served/request model id (cfg["model"])
+      {repo}       → the HF repo id (cfg["repo"] or cfg["model"]); MTPLX's CLI
+                     --model flag needs the repo, not the normalized served id
+      {model_path} → the local HF-cache snapshot path when the repo is cached
+                     (some CLIs need a real path), else the model id"""
+    repo = fw_cfg.get("repo") or fw_cfg.get("model", "")
+    model_path = discovery.snapshot_dir(repo)
     cmd = []
     for part in fw_cfg.get("start_cmd", []):
         if part == "{model}":
             cmd.append(fw_cfg["model"])
+        elif part == "{repo}":
+            cmd.append(repo)
         elif part == "{model_path}":
             cmd.append(model_path or fw_cfg["model"])
         else:
@@ -242,9 +255,12 @@ HARNESS_LABELS = {
     "hart": "hart",
 }
 
-# hart harness location (the agentic harness built in ~/Documents/hart);
-# override via "hart_path" in config.json.
-HART_PATH = os.path.expanduser(CONFIG.get("hart_path", "~/Documents/hart/hart.py"))
+# hart harness location — bundled in this repo under hart/ (so a fresh clone
+# works out of the box); override via "hart_path" in config.json. Relative
+# paths resolve against the repo root; ~ is expanded.
+_hart_cfg = CONFIG.get("hart_path", os.path.join(ROOT, "hart", "hart.py"))
+HART_PATH = os.path.expanduser(
+    _hart_cfg if os.path.isabs(_hart_cfg) else os.path.join(ROOT, _hart_cfg))
 
 # Routing for agent harnesses (pi/opencode/goose). True = via the local
 # measurement proxy, which adds per-request PP/TGS/TTFT to their rows.
@@ -2001,19 +2017,34 @@ class Handler(BaseHTTPRequestHandler):
                                  "status": STATE["framework_status"].get(fw)}
                             for fw, c in FRAMEWORKS.items()})
         elif self.path.startswith("/api/models/discover"):
-            # ?fw=<id> limits to one framework; default = all.
+            # ?fw=<id> limits the "current" marker to one framework; the
+            # candidate list is always the unified set (all sources), each
+            # tagged with the frameworks it can serve. The UI greys out the
+            # rest for the selected framework.
             qfw = self.path.split("fw=")[1].split("&")[0] if "fw=" in self.path else None
-            fws = [qfw] if qfw in FRAMEWORKS else list(FRAMEWORKS)
+            fw = qfw if qfw in FRAMEWORKS else None
             free, _total = free_ram()
             free_gb = round(free / 1073741824, 1)
-            out = {}
-            for fw in fws:
-                cfg = FRAMEWORKS[fw]
-                out[fw] = {
-                    "current": cfg["model"],
-                    "ctx_tokens": cfg.get("ctx_tokens"),
+            candidates = discovery.all_candidates(free_gb, FRAMEWORKS)
+            if fw:
+                cur_key = discovery.normalize_key(
+                    FRAMEWORKS[fw].get("repo") or FRAMEWORKS[fw]["model"])
+                for c in candidates:
+                    c["current"] = (discovery.normalize_key(c["id"]) == cur_key)
+                out = {fw: {
+                    "current": FRAMEWORKS[fw].get("repo") or FRAMEWORKS[fw]["model"],
+                    "ctx_tokens": FRAMEWORKS[fw].get("ctx_tokens"),
                     "free_ram_gb": free_gb,
-                    "candidates": discovery.candidates_for(cfg, free_gb),
+                    "candidates": candidates,
+                }}
+            else:
+                out = {
+                    "free_ram_gb": free_gb,
+                    "candidates": candidates,
+                    "frameworks": {f: {
+                        "current": FRAMEWORKS[f].get("repo") or FRAMEWORKS[f]["model"],
+                        "ctx_tokens": FRAMEWORKS[f].get("ctx_tokens"),
+                    } for f in FRAMEWORKS},
                 }
             self._json(out)
         elif self.path == "/api/proxy":
@@ -2077,7 +2108,13 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(model, str) or not model.strip():
                 raise ValueError("model: non-empty string required")
             cfg = FRAMEWORKS[fw]
-            cfg["model"] = model.strip()
+            model = model.strip()
+            cfg["model"] = model
+            # MTPLX: the CLI --model flag loads by repo id from ~/.mtplx/models,
+            # but the server serves a normalized id (auto-adopted on start). Track
+            # the repo separately so start_cmd's {repo} placeholder resolves right.
+            if cfg.get("model_source") == "mtplx":
+                cfg["repo"] = model
             for key, cast in (("ctx_tokens", int), ("model_gb", float)):
                 if isinstance(req.get(key), (int, float)) and req[key] > 0:
                     cfg[key] = cast(req[key])

@@ -372,8 +372,10 @@ async function loadModelCandidates(fw) {
   modelCandidates = d.candidates || [];
   const sel = $('modelSel');
   sel.innerHTML = modelCandidates.map(c => {
-    const mark = c.id === d.current ? ' ✓ (current)' : '';
-    return `<option value="${esc(c.id)}" ${c.id === d.current ? 'selected' : ''}>${esc(c.id)}${mark}</option>`;
+    const compatible = (c.frameworks || []).includes(fw);
+    const mark = c.current ? ' ✓ (current)' : '';
+    const suffix = compatible ? '' : ' — not for ' + esc(fw);
+    return `<option value="${esc(c.id)}" ${c.current ? 'selected' : ''} ${compatible ? '' : 'disabled'}>${esc(c.id)}${mark}${suffix}</option>`;
   }).join('');
   renderModelCompat();
 }
@@ -385,12 +387,15 @@ function renderModelCompat() {
   const v = c.compat.verdict;
   const color = v === 'ready' ? 'var(--green)' : v === 'tight' ? 'var(--amber)'
     : v === 'too-large' ? 'var(--red)' : 'var(--muted)';
-  const bits = [`<span style="color:${color};font-weight:700">${v.toUpperCase()}</span>`];
+  const srcLabel = c.source === 'mtplx' ? 'MTPLX model'
+    : c.source === 'hf' ? 'HF cache model' : 'served';
+  const bits = [`<span style="color:${color};font-weight:700">${v.toUpperCase()}</span>`, srcLabel];
   if (c.size_gb) bits.push(`~${c.size_gb} GB`);
   if (c.context_length) bits.push(`ctx ${Number(c.context_length).toLocaleString()}`);
   if (c.served) bits.push('served now');
-  if (c.in_cache) bits.push('in cache');
   if (c.mtp_draft) bits.push(`MTP draft: ${esc(c.mtp_draft)}`);
+  const fws = (c.frameworks || []).map(f => FRAMEWORKS[f] ? FRAMEWORKS[f].name : f);
+  if (fws.length) bits.push(`works with: ${fws.join(', ')}`);
   el.innerHTML = bits.join(' · ')
     + (c.compat.reasons.length ? `<div style="margin-top:4px">${c.compat.reasons.map(esc).join('<br>')}</div>` : '');
 }

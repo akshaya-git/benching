@@ -3,10 +3,11 @@
   "port": 7090,
   "route_via_proxy": false,
   "pi_thinking": "",
-  "hart_path": "~/Documents/hart/hart.py",
+  "hart_path": "./hart/hart.py",
   "frameworks": {
     "omlx": {
       "name": "OMLX",
+      "model_source": "hf",
       "port": 7001,
       "model": "mlx-community--Qwen3.8-27B-8bit",
       "model_gb": 28,
@@ -16,21 +17,23 @@
     },
     "mtplx": {
       "name": "MTPLX",
+      "model_source": "mtplx",
       "port": 7002,
       "model": "mtplx-qwen38-27b-optimized-quality",
       "repo": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
       "model_gb": 28,
       "ctx_tokens": 261000,
       "start_cmd": ["mtplx", "serve",
-                    "--model", "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+                    "--model", "{repo}",
                     "--context-window", "261000",
                     "--max-tokens", "32768",
                     "--reasoning-effort", "low",
                     "--port", "7002"],
-      "notes": "All parameters are CLI flags applied at server start. The served model id is normalized and auto-adopted."
+      "notes": "All parameters are CLI flags applied at server start. Models load from ~/.mtplx/models by repo id ({repo}); the served model id is normalized and auto-adopted. Pick a model in the Model panel."
     },
     "mlxlm": {
       "name": "MLX-VLM",
+      "model_source": "hf",
       "port": 7003,
       "model": "mlx-community/Qwen3.8-27B-8bit",
       "model_gb": 28,
@@ -46,6 +49,7 @@
     },
     "mlxserve": {
       "name": "MLX-Serve",
+      "model_source": "hf",
       "port": 7004,
       "model": "mlx-community/Qwen3.8-27B-8bit",
       "model_gb": 28,

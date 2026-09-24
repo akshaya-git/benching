@@ -50,10 +50,11 @@ flowchart TB
         PI[pi]
         OC[opencode]
         GO[goose]
-        HART[hart.py]
+        HART[hart.py — bundled in hart/]
     end
 
     HF[(Hugging Face cache<br/>~/.cache/huggingface/hub)]
+    MTPXSTORE[(MTPLX store<br/>~/.mtplx/models)]
 
     Browser <-->|HTTP/JSON| HTTP
     ORCH -->|spawn / SIGTERM| OMLX & MTPLX & MLXLM & MLXS
@@ -62,7 +63,9 @@ flowchart TB
     PROXY --> OMLX & MTPLX & MLXLM & MLXS
     PI & OC & GO & HART -->|OpenAI-compatible| OMLX & MTPLX & MLXLM & MLXS
     DISC -->|scan| HF
-    OMLX & MTPLX & MLXLM & MLXS -->|load weights| HF
+    DISC -->|scan| MTPXSTORE
+    OMLX & MLXLM & MLXS -->|load weights| HF
+    MTPLX -->|load weights| MTPXSTORE
 ```
 
 ## 2. Process & threading model
@@ -144,6 +147,10 @@ sequenceDiagram
 | **goose** | goose agent | `goose run -t <prompt>` with isolated `XDG_CONFIG_HOME` + `OPENAI_BASE_URL` | agent stdout + artifact |
 | **hart** | the `hart` agentic harness | `python3 <hart_path>` (config from `hart_path`) | `HART_RESULT {…}` line on stdout |
 
+The **`hart`** harness is **bundled** in this repo under `hart/` (so a fresh clone
+works out of the box); `hart_path` defaults to `./hart/hart.py`. The other agent
+harnesses (`pi`, `opencode`, `goose`) are community tools the user installs themselves.
+
 All agent harnesses are pointed at the framework via an **OpenAI-compatible base URL**
 (`http://127.0.0.1:<port>/v1`) and a throwaway API key. Each gets an **isolated config
 dir** under `harness-configs/` so the user's global agent configs are never touched.
@@ -184,11 +191,14 @@ flowchart LR
 flowchart TB
     subgraph Sources
         L[Local HF cache<br/>scan ~/.cache/huggingface/hub]
+        M[MTPLX store<br/>scan ~/.mtplx/models]
         S[Served /v1/models<br/>live, per framework]
     end
-    L --> M[merge + de-dup<br/>normalize_key: org/name == org--name]
-    S --> M
-    M --> C[compatibility scoring]
+    L --> MG[merge + de-dup<br/>normalize_key: org/name == org--name]
+    M --> MG
+    S --> MG
+    MG --> TAG[tag by model_source<br/>hf → omlx/mlxlm/mlxserve<br/>mtplx → mtplx]
+    TAG --> C[compatibility scoring]
     RAM[free RAM<br/>vm_stat / /proc/meminfo, 3s cache] --> C
     CTX[configured ctx_tokens] --> C
     C --> V[verdict per model]
@@ -198,9 +208,14 @@ flowchart TB
     V -->|unknown| U[grey — not cached, would download]
 ```
 
-- **Two sources, de-duplicated.** The live `/v1/models` (authoritative while a server
-  runs) is merged with the local HF cache. Served ids use `org--name`; cache ids use
-  `org/name`; `normalize_key()` maps both to the same cache-dir key so they collapse.
+- **Three sources, de-duplicated.** The live `/v1/models` (authoritative while a server
+  runs) is merged with the local HF cache **and** the MTPLX store. Served ids use
+  `org--name`; cache ids use `org/name`; `normalize_key()` maps both to the same
+  cache-dir key so they collapse.
+- **MTPLX has its own model store.** MTPLX models live in `~/.mtplx/models` (a different
+  format — MTP sidecar + runtime — not plain HF/MLX repos), so they're discovered
+  separately and tagged `model_source: "mtplx"`. The UI greys out MTPLX models for
+  non-MTPLX frameworks and vice-versa, based on each framework's `model_source`.
 - **RAM fit** uses `size_gb × 1.25` (weights + KV cache + engine overhead) vs current
   free RAM. Free RAM is read from `vm_stat` (macOS) or `/proc/meminfo` (Linux) and
   cached for 3s (the UI polls every 1.2s).

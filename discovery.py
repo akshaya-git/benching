@@ -20,6 +20,8 @@ import os
 import urllib.request
 
 HF_CACHE = os.path.expanduser("~/.cache/huggingface/hub")
+# MTPLX keeps its own model store, separate from the HF cache.
+MTPLX_MODELS = os.path.expanduser("~/.mtplx/models")
 _GB = 1073741824
 # Weights + KV cache + engine overhead: 25% headroom over raw weight size.
 RAM_HEADROOM = 1.25
@@ -73,24 +75,50 @@ def _snapshot_size_gb(cache_dir):
     return round(best / _GB, 1) if best else None
 
 
-def _cached_context(cache_dir):
-    """Context window from the cached config.json, when the model declares one.
-    Checks the top level and the nested text_config (multimodal models nest
-    the LM config there)."""
-    for p in sorted(glob.glob(os.path.join(cache_dir, "snapshots", "*", "config.json"))):
-        try:
-            with open(p) as f:
-                cfg = json.load(f)
-        except (OSError, json.JSONDecodeError):
+def _context_from_cfg(cfg):
+    """Context window from a config dict, when the model declares one. Checks
+    the top level and the nested text_config (multimodal models nest the LM
+    config there)."""
+    for node in (cfg, cfg.get("text_config") or {}):
+        if not isinstance(node, dict):
             continue
-        for node in (cfg, cfg.get("text_config") or {}):
-            if not isinstance(node, dict):
-                continue
-            for key in ("max_position_embeddings", "seq_len", "model_max_length"):
-                v = node.get(key)
-                if isinstance(v, int) and v > 0:
-                    return v
+        for key in ("max_position_embeddings", "seq_len", "model_max_length"):
+            v = node.get(key)
+            if isinstance(v, int) and v > 0:
+                return v
     return None
+
+
+def _file_context(path):
+    """Context window from a single config.json file (None if absent/invalid)."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            return _context_from_cfg(json.load(f))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _cached_context(cache_dir):
+    """Context window from the cached config.json (largest snapshot)."""
+    for p in sorted(glob.glob(os.path.join(cache_dir, "snapshots", "*", "config.json"))):
+        ctx = _file_context(p)
+        if ctx:
+            return ctx
+    return None
+
+
+def _dir_size_gb(d):
+    """Total size of a directory tree in GB (MTPLX models have no snapshots/)."""
+    total = 0
+    for dirpath, _dirnames, filenames in os.walk(d):
+        for fn in filenames:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, fn))
+            except OSError:
+                pass
+    return round(total / _GB, 1) if total else None
 
 
 def normalize_key(model_id):
@@ -138,6 +166,39 @@ def discover_local():
             "in_cache": True,
             "size_gb": _snapshot_size_gb(d),
             "context_length": _cached_context(d),
+        })
+    return out
+
+
+def discover_mtplx():
+    """Models in MTPLX's own store (~/.mtplx/models). Each dir is a cache-style
+    name (org--name) holding the weights plus .mtplx-source.json (the original
+    repo_id) and config.json (context). Only MTPLX can serve these — they are a
+    different format (MTP sidecar + runtime) than plain HF/MLX repos."""
+    out = []
+    if not os.path.isdir(MTPLX_MODELS):
+        return out
+    for entry in sorted(os.listdir(MTPLX_MODELS)):
+        d = os.path.join(MTPLX_MODELS, entry)
+        if not os.path.isdir(d):
+            continue
+        repo = None
+        src = os.path.join(d, ".mtplx-source.json")
+        if os.path.isfile(src):
+            try:
+                with open(src) as f:
+                    repo = json.load(f).get("repo_id")
+            except (OSError, json.JSONDecodeError):
+                pass
+        if not repo:
+            repo = entry.replace("--", "/")
+        out.append({
+            "id": repo,
+            "source": "mtplx",
+            "served": False,
+            "in_cache": True,
+            "size_gb": _dir_size_gb(d),
+            "context_length": _file_context(os.path.join(d, "config.json")),
         })
     return out
 
@@ -220,6 +281,68 @@ def candidates_for(fw_cfg, free_ram_gb):
         m["mtp_draft"] = mtp_draft_for(m["id"], local_ids)
         out.append(m)
     # served first, then ready, then the rest; stable by id
+    rank = {"ready": 0, "tight": 1, "unknown": 2, "too-large": 3}
+    out.sort(key=lambda m: (0 if m.get("served") else 1,
+                            rank.get(m["compat"]["verdict"], 9), m["id"]))
+    return out
+
+
+def all_candidates(free_ram_gb, frameworks):
+    """Unified, de-duplicated candidate list across ALL sources (HF cache +
+    MTPLX store + anything currently served), each tagged with the list of
+    frameworks it is compatible with. Compatibility is by model source: a
+    framework's "model_source" ("hf" or "mtplx") must match the model's source.
+    The UI uses this to show every model and grey out the ones a selected
+    framework can't serve (e.g. MTPLX-only models for OMLX/MLX-VLM/MLX-Serve).
+
+    frameworks: the full {id: cfg} map (so sources can be computed globally).
+    Returns a list of candidate dicts, each with: id, source, frameworks[],
+    served, in_cache, size_gb, context_length, compat, mtp_draft."""
+    hf_fws = [fw for fw, c in frameworks.items()
+              if c.get("model_source", "hf") == "hf"]
+    mtp_fws = [fw for fw, c in frameworks.items()
+               if c.get("model_source") == "mtplx"]
+    by_key = {}
+    for m in discover_local():
+        m["source"] = "hf"
+        m["frameworks"] = list(hf_fws)
+        by_key[normalize_key(m["id"])] = m
+    for m in discover_mtplx():
+        m["source"] = "mtplx"
+        m["frameworks"] = list(mtp_fws)
+        by_key[normalize_key(m["id"])] = m
+    # Merge in whatever each framework is serving right now (authoritative
+    # while it runs). A served id that matches a local model just flags it;
+    # an unknown served id is added, compatible with the serving framework.
+    for fw, cfg in frameworks.items():
+        port = cfg.get("port")
+        if not port:
+            continue
+        for m in discover_served(port):
+            k = normalize_key(m["id"])
+            e = by_key.get(k)
+            if e is None:
+                e = dict(m)
+                e["source"] = "served"
+                e["frameworks"] = [fw]
+                by_key[k] = e
+            else:
+                e["served"] = True
+                if fw not in e["frameworks"]:
+                    e["frameworks"].append(fw)
+    # Score each candidate. Context window is per-framework; use the first
+    # compatible framework's configured window (they normally agree).
+    local_ids = [m["id"] for m in discover_local()]
+    out = []
+    for m in by_key.values():
+        ctx_tokens = None
+        for fw in m.get("frameworks", []):
+            ctx_tokens = frameworks[fw].get("ctx_tokens")
+            if ctx_tokens:
+                break
+        m["compat"] = compatibility(m, free_ram_gb, ctx_tokens)
+        m["mtp_draft"] = mtp_draft_for(m["id"], local_ids) if m.get("source") == "hf" else None
+        out.append(m)
     rank = {"ready": 0, "tight": 1, "unknown": 2, "too-large": 3}
     out.sort(key=lambda m: (0 if m.get("served") else 1,
                             rank.get(m["compat"]["verdict"], 9), m["id"]))

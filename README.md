@@ -40,11 +40,16 @@ result, soonest). Every completed run is saved to `runs/*.json` for later compar
   - `mtplx` — MTPLX
   - `mlx-serve` — MLX-Serve
   - a Python interpreter with `mlx_vlm` installed — MLX-VLM
-- **Agent harness CLIs** (only for the agent rows): `pi`, `opencode`, `goose`, and the
-  `hart` harness (see `config.json → hart_path`).
-- The **models** you want to test, already in your Hugging Face cache
-  (`~/.cache/huggingface/hub`). benching auto-discovers what's cached and tells you
-  what fits in your free RAM.
+- **Agent harness CLIs** (only for the agent rows): `pi`, `opencode`, and `goose` are
+  community tools you install yourself. The **`hart`** agentic harness is **bundled** in
+  this repo under `hart/` — it works out of the box, no install needed.
+- The **models** you want to test, already on your machine:
+  - OMLX / MLX-VLM / MLX-Serve read from your Hugging Face cache
+    (`~/.cache/huggingface/hub`).
+  - MTPLX reads from its own store (`~/.mtplx/models`).
+
+  benching auto-discovers both, tags each model with the frameworks it can serve, and
+  tells you what fits in your free RAM.
 
 `install.sh` checks all of the above and tells you exactly what's missing.
 
@@ -71,10 +76,11 @@ python3 server.py            # or: make run
 Then in the browser: pick your frameworks and harnesses, choose a task (or edit the
 prompt), and hit **▶ Run Benchmark**.
 
-> **First run tip:** the *Model per Framework* panel lists every model in your HF
-> cache with a live compatibility verdict (**ready / tight / too-large / unknown**)
-> based on your current free RAM. Pick a model there and it's written straight into
-> `config.json`.
+> **First run tip:** the *Model per Framework* panel lists every model on your machine
+> (HF cache + MTPLX store) with a live compatibility verdict (**ready / tight /
+> too-large / unknown**) based on your current free RAM. Models a framework can't serve
+> are greyed out (e.g. MTPLX-only models for OMLX/MLX-VLM/MLX-Serve). Pick a model and
+> it's written straight into `config.json`.
 
 ---
 
@@ -87,13 +93,14 @@ All machine-specific settings live in **`config.json`** (seeded from
 |-----|--------------|
 | `host` / `port` | Where the web UI listens. Keep `host: 127.0.0.1` unless you know why you'd expose it. |
 | `frameworks.<id>.model` | The model id that framework serves / should serve. |
-| `frameworks.<id>.start_cmd` | The exact command to cold-start that framework's server. Supports `{model}` and `{model_path}` placeholders. |
+| `frameworks.<id>.model_source` | Where the framework loads models from: `hf` (HF cache) or `mtplx` (`~/.mtplx/models`). Controls which models the picker offers for that framework. |
+| `frameworks.<id>.start_cmd` | The exact command to cold-start that framework's server. Supports `{model}`, `{repo}`, and `{model_path}` placeholders. |
 | `frameworks.<id>.port` | The port that framework's server listens on. |
 | `frameworks.<id>.ctx_tokens` | Configured context window (used for compatibility scoring + ctx-fill %). |
 | `frameworks.<id>.model_gb` | Approx weight size in GB (used for RAM-fit scoring). |
 | `route_via_proxy` | Route agent harnesses through the local measurement proxy (adds per-request PP/TGS/TTFT to agent rows). |
 | `pi_thinking` | pi thinking-level suffix for `--model` (e.g. `:high`). Empty = inherit server default. |
-| `hart_path` | Path to the `hart` agentic harness script. |
+| `hart_path` | Path to the `hart` agentic harness script. Defaults to the bundled `./hart/hart.py`. |
 
 See **[CONFIG.md](CONFIG.md)** for the full reference and **[ARCHITECTURE.md](ARCHITECTURE.md)**
 for how it all fits together.
@@ -125,6 +132,7 @@ benching/
 ├── install.sh           # prerequisite check + config seeding
 ├── Makefile             # setup / run / check / clean
 ├── requirements.txt     # (empty — stdlib only)
+├── hart/                # the bundled `hart` agentic harness (hart.py + docs)
 ├── examples/            # sample artifacts (e.g. a generated pong.html)
 ├── runs/                # saved runs (gitignored)
 ├── outputs/             # produced artifacts (gitignored)
