@@ -36,20 +36,43 @@ result, soonest). Every completed run is saved to `runs/*.json` for later compar
 
 - **Apple Silicon Mac** (M1 or later) with a recent **Python 3.10+** on your `PATH`.
 - The **framework CLIs** you want to benchmark (install only what you need):
-  - `omlx` — OMLX
-  - `mtplx` — MTPLX
-  - `mlx-serve` — MLX-Serve
-  - a Python interpreter with `mlx_vlm` installed — MLX-VLM
-- **Agent harness CLIs** (only for the agent rows): `pi`, `opencode`, and `goose` are
-  community tools you install yourself. The **`hart`** agentic harness is **bundled** in
-  this repo under `hart/` — it works out of the box, no install needed.
-- The **models** you want to test, already on your machine:
+
+| Framework | What it is | Install | Repo / site |
+|-----------|-----------|---------|-------------|
+| **OMLX** | macOS app + `omlx` CLI | download the app from the site | [omlx.ai](https://omlx.ai) · [github.com/jundot/omlx](https://github.com/jundot/omlx) |
+| **MTPLX** | MTP speculative decoding for Qwen3-Next | `brew tap youssofal/mtplx && brew install mtplx` | [github.com/youssofal/MTPLX](https://github.com/youssofal/MTPLX) |
+| **MLX-Serve** | OpenAI/Anthropic-compatible server | `brew tap ddalcu/mlx-serve && brew install mlx-serve` | [github.com/ddalcu/mlx-serve](https://github.com/ddalcu/mlx-serve) |
+| **MLX-VLM** | VLM / omni inference via `mlx_vlm` | `pip install mlx-vlm` (into the `python3` on your `PATH`) | [github.com/Blaizzy/mlx-vlm](https://github.com/Blaizzy/mlx-vlm) |
+
+- **Agent harness CLIs** (only for the agent rows) — community tools you install yourself:
+
+| Harness | Install | Repo / site |
+|---------|---------|-------------|
+| **pi** | `npm install -g @earendil-works/pi-coding-agent` | [github.com/earendil-works/pi](https://github.com/earendil-works/pi) |
+| **opencode** | `npm install -g opencode-ai` | [opencode.ai](https://opencode.ai) · [github.com/anomalyco/opencode](https://github.com/anomalyco/opencode) |
+| **goose** | `brew install aaif-goose/tap/goose` | [github.com/aaif-goose/goose](https://github.com/aaif-goose/goose) |
+| **hart** | *bundled in this repo — no install* | [`hart/`](hart/) |
+
+- **Models** — already on your machine (benching auto-discovers them):
   - OMLX / MLX-VLM / MLX-Serve read from your Hugging Face cache
     (`~/.cache/huggingface/hub`).
   - MTPLX reads from its own store (`~/.mtplx/models`).
 
-  benching auto-discovers both, tags each model with the frameworks it can serve, and
-  tells you what fits in your free RAM.
+  benching tags each model with the frameworks it can serve and tells you what fits in
+  your free RAM. If you're starting fresh, these are good models to download first (all
+  verified against the frameworks above):
+
+  | Model | Size | Good for | Link |
+  |-------|------|----------|------|
+  | Qwen3.8-27B-8bit | ~28 GB | OMLX / MLX-VLM / MLX-Serve (all-round starter) | [mlx-community/Qwen3.8-27B-8bit](https://huggingface.co/mlx-community/Qwen3.8-27B-8bit) |
+  | Qwen3.8-27B-MTP-8bit | ~0.5 GB | MTP draft — pairs with the 27B for speculative decoding | [mlx-community/Qwen3.8-27B-MTP-8bit](https://huggingface.co/mlx-community/Qwen3.8-27B-MTP-8bit) |
+  | Qwen3.6-35B-A3B-6bit | ~27 GB | MoE — fast decode | [mlx-community/Qwen3.6-35B-A3B-6bit](https://huggingface.co/mlx-community/Qwen3.6-35B-A3B-6bit) |
+  | Qwen3.8-27B-MTPLX-Optimized-Quality | ~28 GB | MTPLX (quality) | [Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality](https://huggingface.co/Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality) |
+  | Qwen3.8-Flash-Next-MTPLX-Optimized-Speed | ~107 GB | MTPLX (speed — needs lots of RAM) | [Youssofal/Qwen3.8-Flash-Next-MTPLX-Optimized-Speed](https://huggingface.co/Youssofal/Qwen3.8-Flash-Next-MTPLX-Optimized-Speed) |
+
+  > Download any of these with `hf download <repo>` (or `huggingface-cli download <repo>`),
+  > or open the link and use the **Files** tab. MTPLX models are pulled into
+  > `~/.mtplx/models` by the `mtplx` CLI itself.
 
 `install.sh` checks all of the above and tells you exactly what's missing.
 

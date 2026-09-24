@@ -4,69 +4,49 @@ A single-process, stdlib-only Python backend serves a single-file HTML dashboard
 orchestrates local LLM inference frameworks and agent harnesses. This document is the
 authoritative map of the system.
 
-## 1. High-level component diagram
+## 1. High-level flow
 
 ```mermaid
 flowchart TB
-    subgraph Browser["Browser (index.html — single file, no build)"]
-        UI[Dashboard UI<br/>framework cards · harness chips · model picker]
-        POLL[1.2s poller<br/>/api/state · /api/activity]
-        CHART[Canvas chart<br/>TPS / TGS / PP per framework]
-        UI --> POLL
-        POLL --> CHART
-    end
+    UI["Browser dashboard<br/>index.html — pick frameworks, harnesses, model, task"]
 
-    subgraph Server["server.py (Python stdlib, one process)"]
-        HTTP[HTTP layer<br/>ThreadingHTTPServer + Handler]
-        ORCH[Orchestrator<br/>run_benchmark]
-        FW[Framework manager<br/>start / stop / health / adopt]
-        HARN[Harness runners<br/>raw · raw+ · pi · opencode · goose · hart]
-        MET[Metrics<br/>call_chat · server_snapshot · proxy]
-        DISC[discovery.py<br/>model discovery + RAM/ctx scoring]
-        CFG[config.json<br/>load / save / merge]
-        HIST[Run history<br/>runs/*.json]
-        LOG[Activity + logs<br/>ACTIVITY ring · logs/bench.log]
+    API["Python backend<br/>server.py — stdlib only, one process"]
 
-        HTTP --> ORCH
-        HTTP --> DISC
-        HTTP --> CFG
-        ORCH --> FW
-        ORCH --> HARN
-        HARN --> MET
-        ORCH --> HIST
-        ORCH --> LOG
-        FW --> LOG
-    end
+    FW["Local inference server<br/>OMLX · MTPLX · MLX-VLM · MLX-Serve<br/>(one at a time)"]
 
-    subgraph Local["Local inference (one framework at a time)"]
-        OMLX[OMLX :7001]
-        MTPLX[MTPLX :7002]
-        MLXLM[MLX-VLM :7003]
-        MLXS[MLX-Serve :7004]
-        PROXY[Measurement proxy :7095<br/>optional, route_via_proxy]
-    end
+    H["Harness<br/>raw · raw+ · pi · opencode · goose · hart"]
 
-    subgraph HarnessCLIs["Agent harness CLIs (subprocess)"]
-        PI[pi]
-        OC[opencode]
-        GO[goose]
-        HART[hart.py — bundled in hart/]
-    end
+    M[("Models on disk<br/>HF cache + MTPLX store")]
 
-    HF[(Hugging Face cache<br/>~/.cache/huggingface/hub)]
-    MTPXSTORE[(MTPLX store<br/>~/.mtplx/models)]
+    R[("Run history<br/>runs/*.json")]
 
-    Browser <-->|HTTP/JSON| HTTP
-    ORCH -->|spawn / SIGTERM| OMLX & MTPLX & MLXLM & MLXS
-    HARN -->|OpenAI /chat/completions| OMLX & MTPLX & MLXLM & MLXS
-    HARN -.->|optional routed| PROXY
-    PROXY --> OMLX & MTPLX & MLXLM & MLXS
-    PI & OC & GO & HART -->|OpenAI-compatible| OMLX & MTPLX & MLXLM & MLXS
-    DISC -->|scan| HF
-    DISC -->|scan| MTPXSTORE
-    OMLX & MLXLM & MLXS -->|load weights| HF
-    MTPLX -->|load weights| MTPXSTORE
+    UI -->|"1 · HTTP / JSON"| API
+    API -->|"2 · start / stop"| FW
+    API -->|"3 · run task"| H
+    H -->|"4 · /chat/completions"| FW
+    FW -->|"load weights"| M
+    API -->|"5 · save"| R
+    API -->|"6 · live results"| UI
 ```
+
+Read it top to bottom:
+
+1. The **browser** talks to the **backend** over plain HTTP/JSON (no websockets, no
+   build step — the UI polls every 1.2s).
+2. The **backend** starts (or reuses) a **local inference server** for the current
+   framework, and stops it before moving to the next one — so frameworks never compete
+   for RAM/GPU.
+3. For each selected **harness**, the backend runs the task. The harness (a raw HTTP
+   call, or an agent CLI subprocess) sends the prompt to the framework's
+   OpenAI-compatible `/chat/completions` endpoint.
+4. The framework **loads the model** from disk (HF cache, or the MTPLX store for MTPLX)
+   and generates the completion.
+5. The backend **saves** the finished run to `runs/*.json`.
+6. Results stream back to the **browser** live as each cell completes.
+
+Model discovery (which models exist, and which fit in your RAM) is a read-only side
+channel: `discovery.py` scans the same on-disk stores and feeds the model picker — it
+never touches the inference path.
 
 ## 2. Process & threading model
 
