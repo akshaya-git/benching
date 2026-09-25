@@ -115,9 +115,12 @@ DEFAULT_FRAMEWORKS = {
         "model": "mlx-community/Qwen3.8-27B-8bit",
         "model_gb": 28, "ctx_tokens": 261000,
         # --metrics: Prometheus surface (on by default in the GUI, not CLI).
-        # Served ctx follows ~/.mlx-serve/model-settings.json (ctx_size),
-        # overriding --ctx-size — the benchmark adopts the served value.
-        "start_cmd": ["mlx-serve", "--model", "mlx-community/Qwen3.8-27B-8bit",
+        # mlx-serve 26.x cannot resolve a repo id (org/name) — it fails with
+        # FileNotFound — so pass the local HF-cache snapshot path ({model_path});
+        # it loads the same model fine. Served ctx follows
+        # ~/.mlx-serve/model-settings.json (ctx_size), overriding --ctx-size —
+        # the benchmark adopts the served value.
+        "start_cmd": ["mlx-serve", "--model", "{model_path}",
                       "--serve", "--host", "127.0.0.1", "--metrics",
                       "--port", "7004", "--ctx-size", "261000",
                       "--max-tokens", "32768", "--reasoning-budget", "1024"],

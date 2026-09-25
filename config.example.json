@@ -54,7 +54,7 @@
       "model": "mlx-community/Qwen3.8-27B-8bit",
       "model_gb": 28,
       "ctx_tokens": 261000,
-      "start_cmd": ["mlx-serve", "--model", "mlx-community/Qwen3.8-27B-8bit",
+      "start_cmd": ["mlx-serve", "--model", "{model_path}",
                     "--serve", "--host", "127.0.0.1", "--metrics",
                     "--port", "7004", "--ctx-size", "261000",
                     "--max-tokens", "32768", "--reasoning-budget", "1024"],

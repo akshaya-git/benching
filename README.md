@@ -67,6 +67,17 @@ result, soonest). Every completed run is saved to `runs/*.json` for later compar
   | Qwen3.8-27B-8bit | ~28 GB | OMLX / MLX-VLM / MLX-Serve (all-round starter) | [mlx-community/Qwen3.8-27B-8bit](https://huggingface.co/mlx-community/Qwen3.8-27B-8bit) |
   | Qwen3.8-27B-MTP-8bit | ~0.5 GB | MTP draft — pairs with the 27B for speculative decoding, used for OMLX / MLX-VLM / MLX-Serve (all-round starter) | [mlx-community/Qwen3.8-27B-MTP-8bit](https://huggingface.co/mlx-community/Qwen3.8-27B-MTP-8bit) |
   | Qwen3.8-27B-MTPLX-Optimized-Quality | ~28 GB | MTPLX (quality) | [Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality](https://huggingface.co/Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality) |
+  | Qwen3.8-27B-bf16 | ~51 GB | OMLX / MLX-VLM / MLX-Serve — **full-precision (bf16) reference** for quality validation | [mlx-community/Qwen3.8-27B-bf16](https://huggingface.co/mlx-community/Qwen3.8-27B-bf16) |
+
+  > **Quality validation (full-precision vs quantized):** to check whether a
+  > quantized build (e.g. the 8-bit starter) is losing quality, run the same task
+  > with the **bf16** model and compare the QA scores. Select `Qwen3.8-27B-bf16`
+  > per framework in the *Model per Framework* panel, run the task, then repeat
+  > with the 8-bit model and diff the `qa_func` / `qa_qual` / `usable` columns.
+  > The bf16 model needs ~51 GB of free RAM, so stop other framework servers
+  > (e.g. OMLX) first. It is an HF-cache model, so it is offered for OMLX /
+  > MLX-VLM / MLX-Serve; MTPLX uses its own store and would need a separate
+  > MTPLX build of the same weights.
 
   > Download any of these with `hf download <repo>` (or `huggingface-cli download <repo>`),
   > or open the link and use the **Files** tab. MTPLX models are pulled into
